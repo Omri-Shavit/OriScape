@@ -153,6 +153,66 @@ void collect_refs(Inkscape::XML::Node const *node, std::set<std::string> &out)
     }
 }
 
+template <typename F>
+void for_each_element(Inkscape::XML::Node *node, F const &f)
+{
+    for (auto child = node->firstChild(); child; child = child->next()) {
+        if (std::string(child->name()).rfind("svg:", 0) == 0) {
+            f(child);
+            for_each_element(child, f);
+        }
+    }
+}
+
+/// The color a recolorable symbol uses: the user's choice, or the library's.
+std::string symbol_color(Tool const &tool)
+{
+    auto const color = Inkscape::Preferences::get()->getString("/tools/origami/symbol/" + tool.key);
+    return color.empty() ? tool.color : std::string(color);
+}
+
+/// Recolor a symbol already in the document, and with it every symbol that uses it.
+/// Finger: the first stop of its gradient fill (the shaded end). Turn over: the arrows' stroke.
+void apply_symbol_color(SPDocument *doc, Tool const &tool, std::string const &color)
+{
+    auto symbol = doc->getObjectById(tool.symbol);
+    if (!symbol) {
+        return;
+    }
+    static std::regex const fill_url(R"(fill:url\(#([^)]+)\))");
+    for_each_element(symbol->getRepr(), [&](Inkscape::XML::Node *el) {
+        if (std::string(el->name()) != "svg:path") {
+            return;
+        }
+        auto const *style = el->attribute("style");
+        std::string const style_str = style ? style : "";
+        std::smatch m;
+        if (tool.key == "finger" && std::regex_search(style_str, m, fill_url)) {
+            auto grad = doc->getObjectById(m[1].str());
+            if (!grad) {
+                return;
+            }
+            bool first = true;
+            for_each_element(grad->getRepr(), [&](Inkscape::XML::Node *stop) {
+                if (first && std::string(stop->name()) == "svg:stop") {
+                    first = false;
+                    auto css = sp_repr_css_attr(stop, "style");
+                    sp_repr_css_set_property(css, "stop-color", color.c_str());
+                    sp_repr_css_change(stop, css, "style");
+                    sp_repr_css_attr_unref(css);
+                }
+            });
+        } else if (tool.key == "turnOver") {
+            auto css = sp_repr_css_attr(el, "style");
+            if (sp_repr_css_property(css, "stroke", "none") != std::string("none")) {
+                sp_repr_css_set_property(css, "stroke", color.c_str());
+                sp_repr_css_change(el, css, "style");
+            }
+            sp_repr_css_attr_unref(css);
+        }
+    });
+}
+
 /// Copy a resource def (and the defs it references) into the document unless it's there.
 /// Returns true if anything was added.
 bool ensure_def(SPDocument *doc, std::string const &id)
@@ -181,6 +241,11 @@ bool ensure_def(SPDocument *doc, std::string const &id)
     }
     doc->getDefs()->getRepr()->appendChild(copy);
     Inkscape::GC::release(copy);
+    for (auto const &tool : tools()) {
+        if (tool.isSymbol() && tool.symbol == id) {
+            apply_symbol_color(doc, tool, symbol_color(tool));
+        }
+    }
     return true;
 }
 
@@ -272,6 +337,27 @@ void set_paper_color(SPDesktop *desktop, Tool const &tool, std::string const &co
                 DocumentUndo::done(doc, Glib::ustring::compose(_("Recolor %1 paper"), tool.name), "");
             }
         }
+    }
+    state().changed.emit();
+}
+
+std::string tool_color(Tool const &tool)
+{
+    return tool.isPaper() ? paper_color(tool) : symbol_color(tool);
+}
+
+void set_tool_color(SPDesktop *desktop, Tool const &tool, std::string const &color)
+{
+    if (tool.isPaper()) {
+        set_paper_color(desktop, tool, color);
+        return;
+    }
+    Inkscape::Preferences::get()->setString("/tools/origami/symbol/" + tool.key, color);
+    if (desktop) {
+        auto doc = desktop->getDocument();
+        ensure_def(doc, tool.symbol);
+        apply_symbol_color(doc, tool, color);
+        DocumentUndo::done(doc, Glib::ustring::compose(_("Recolor %1"), tool.name), "");
     }
     state().changed.emit();
 }

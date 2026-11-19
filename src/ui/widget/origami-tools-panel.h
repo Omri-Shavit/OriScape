@@ -48,7 +48,7 @@ private:
 
     Gtk::Widget &makeRow(Origami::Tool const &tool);
     void onClicked(Row &row);
-    void editPaperColor(Origami::Tool const &tool);
+    void editColor(Origami::Tool const &tool);
     void sync();
 
     SPDesktop *_desktop = nullptr;

@@ -45,6 +45,8 @@ struct Tool
 
     bool isSymbol() const { return category == "symbols"; }
     bool isPaper() const { return category == "paper"; }
+    /// Tools whose color the user can change with a long press: paper, finger and turn over.
+    bool isRecolorable() const { return isPaper() || key == "finger" || key == "turnOver"; }
 };
 
 /// All tools in palette order; empty (with a warning printed) if the resource file is missing.
@@ -67,6 +69,13 @@ std::string paper_color(Tool const &tool);
 
 /// Change a paper tool's color; recolors the document's swatch, and with it everything using it.
 void set_paper_color(SPDesktop *desktop, Tool const &tool, std::string const &color);
+
+/// The current color of a recolorable tool: paper color, finger shade, or turn-over stroke.
+std::string tool_color(Tool const &tool);
+
+/// Recolor a recolorable tool (see isRecolorable). Symbols keep their gradient: a finger's
+/// color is its gradient's shaded stop. Every placed symbol of that tool updates.
+void set_tool_color(SPDesktop *desktop, Tool const &tool, std::string const &color);
 
 /// Give a path the pen/pencil is about to add an id like "mountainFold3", if it was drawn
 /// with the active tool's style.

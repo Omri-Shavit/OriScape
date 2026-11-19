@@ -183,19 +183,35 @@ def make_marker(lib, head, at_start):
 
 
 def make_symbol(lib, key, name, label, defs_out, pad=1.0):
-    """A <symbol> whose content is plain paths in a px box starting at 0,0."""
+    """A <symbol> whose content is plain paths in a px box starting at 0,0.
+
+    Returns (symbol, width, height, default color). The default color is the first gradient
+    stop (or first stroke) so the palette's color picker starts from the library's look.
+    """
     shapes = lib.shapes(label)
-    boxes, parts = [], []
+    boxes, parts, gradients = [], [], []
+    default_color = None
     for shape in shapes:
-        path = shape.path.transform(shape.composed_transform()).transform(
-            Transform(scale=1.0 / lib.uu))
+        composed = shape.composed_transform()
+        path = shape.path.transform(composed).transform(Transform(scale=1.0 / lib.uu))
         style = Style(shape.get("style") or "")
         factor = lib.px_per_unit(shape)
         style = scale_stroke(style, factor)
         for prop in ("fill", "stroke"):
             match = re.match(r"url\(#([^)]+)\)", style.get(prop, ""))
             if match:
-                style[prop] = "url(#%s)" % import_paint(lib, match.group(1), defs_out)
+                new_id = import_paint(lib, match.group(1), defs_out)
+                style[prop] = "url(#%s)" % new_id
+                grad = defs_out[new_id]
+                # userSpaceOnUse gradients live in the shape's user space; they must move with the
+                # path when it is baked into the symbol's box (see the translate below).
+                gradients.append((grad, composed))
+                if default_color is None:
+                    stop = next((c for c in grad if c.tag == inkex.addNS("stop", "svg")), None)
+                    if stop is not None:
+                        default_color = Style(stop.get("style") or "").get("stop-color")
+        if default_color is None and style.get("stroke", "none") not in ("none", ""):
+            default_color = style.get("stroke")
         parts.append((path, style))
         box = path.bounding_box()
         half = number(style.get("stroke-width", 0)) / 2 if style.get("stroke", "none") != "none" else 0
@@ -204,6 +220,14 @@ def make_symbol(lib, key, name, label, defs_out, pad=1.0):
     top = min(b[1] for b in boxes) - pad
     width = max(b[2] for b in boxes) + pad - left
     height = max(b[3] for b in boxes) + pad - top
+
+    for grad, composed in gradients:
+        if grad.get("gradientUnits") != "userSpaceOnUse" or grad.get("gradientTransform"):
+            sys.exit("gradient %s must be userSpaceOnUse without gradientTransform" % grad.get("id"))
+        for ax, ay in (("x1", "y1"), ("x2", "y2")):
+            x, y = composed.apply_to_point((float(grad.get(ax)), float(grad.get(ay))))
+            grad.set(ax, fmt(x / lib.uu - left))
+            grad.set(ay, fmt(y / lib.uu - top))
 
     symbol = etree.Element(inkex.addNS("symbol", "svg"))
     symbol.set("id", "origami-symbol-" + key)
@@ -217,7 +241,7 @@ def make_symbol(lib, key, name, label, defs_out, pad=1.0):
         child.set("id", "origami-symbol-%s-%d" % (key, i))
         child.set("d", str(path.translate(-left, -top)))
         child.set("style", str(style))
-    return symbol, width, height
+    return symbol, width, height, default_color or INK
 
 
 def import_paint(lib, source_id, defs_out):
@@ -265,10 +289,10 @@ def main():
                 defs[marker_id] = marker
                 style["marker-start"] = "url(#%s)" % marker_id
         else:
-            symbol, width, height = make_symbol(lib, key, name, extra["label"], defs)
+            symbol, width, height, color = make_symbol(lib, key, name, extra["label"], defs)
             defs[symbol.get("id")] = symbol
             style = Style()
-            attrs.update(symbol=symbol.get("id"), width=fmt(width), height=fmt(height))
+            attrs.update(symbol=symbol.get("id"), width=fmt(width), height=fmt(height), color=color)
         attrs["style"] = str(style)
         tools.append(attrs)
 

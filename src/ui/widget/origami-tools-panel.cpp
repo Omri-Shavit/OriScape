@@ -340,6 +340,9 @@ Gtk::Widget &OrigamiToolsPanel::makeRow(Origami::Tool const &tool)
     Glib::ustring tip;
     if (tool.isSymbol()) {
         tip = Glib::ustring::compose(_("Click on the canvas to place the %1 symbol (%2)"), tool.name, tool.prefix + "1");
+        if (tool.isRecolorable()) {
+            tip += _(". Right-click or long-press to change its color.");
+        }
     } else if (tool.isPaper()) {
         tip = Glib::ustring::compose(_("Draw %1 paper (%2). Right-click or long-press to change its color."),
                                      tool.name, tool.prefix + "1");
@@ -351,10 +354,10 @@ Gtk::Widget &OrigamiToolsPanel::makeRow(Origami::Tool const &tool)
     _rows.push_back({&tool, button, preview, {}});
     button->signal_clicked().connect([this, index] { onClicked(_rows[index]); });
 
-    if (tool.isPaper()) {
+    if (tool.isRecolorable()) {
         button->signal_button_press_event().connect([this, &tool](GdkEventButton *event) {
             if (event->button == 3) {
-                editPaperColor(tool);
+                editColor(tool);
                 return true;
             }
             return false;
@@ -362,7 +365,7 @@ Gtk::Widget &OrigamiToolsPanel::makeRow(Origami::Tool const &tool)
         auto long_press = Gtk::GestureLongPress::create(*button);
         long_press->signal_pressed().connect([this, &tool, long_press = long_press.operator->()](double, double) {
             long_press->set_state(Gtk::EVENT_SEQUENCE_CLAIMED);
-            editPaperColor(tool);
+            editColor(tool);
         });
         _rows.back().long_press = long_press;
     }
@@ -378,23 +381,25 @@ void OrigamiToolsPanel::onClicked(Row &row)
     sync();
 }
 
-void OrigamiToolsPanel::editPaperColor(Origami::Tool const &tool)
+void OrigamiToolsPanel::editColor(Origami::Tool const &tool)
 {
     auto window = dynamic_cast<Gtk::Window *>(get_toplevel());
-    Gtk::ColorChooserDialog dialog(Glib::ustring::compose(_("%1 paper color"), tool.name));
+    auto const title = tool.isPaper() ? Glib::ustring::compose(_("%1 paper color"), tool.name)
+                                      : Glib::ustring::compose(_("%1 color"), tool.name);
+    Gtk::ColorChooserDialog dialog(title);
     if (window) {
         dialog.set_transient_for(*window);
     }
     dialog.set_use_alpha(false);
     Gdk::RGBA color;
-    color.set(Origami::paper_color(tool));
+    color.set(Origami::tool_color(tool));
     dialog.set_rgba(color);
     if (dialog.run() == Gtk::RESPONSE_OK) {
         auto const c = dialog.get_rgba();
         char hex[8];
         std::snprintf(hex, sizeof(hex), "#%02x%02x%02x", int(c.get_red() * 255 + 0.5),
                       int(c.get_green() * 255 + 0.5), int(c.get_blue() * 255 + 0.5));
-        Origami::set_paper_color(_desktop, tool, hex);
+        Origami::set_tool_color(_desktop, tool, hex);
     }
 }
 
