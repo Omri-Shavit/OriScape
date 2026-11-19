@@ -51,6 +51,7 @@ set(inkscape_SRC
   object-hierarchy.cpp
   object-snapper.cpp
   oklab.cpp
+  origami-tools.cpp
   page-manager.cpp
   path-chemistry.cpp
   path-prefix.cpp
@@ -140,6 +141,7 @@ set(inkscape_SRC
   object-hierarchy.h
   object-snapper.h
   oklab.h
+  origami-tools.h
   page-manager.h
   path-chemistry.h
   path-prefix.h

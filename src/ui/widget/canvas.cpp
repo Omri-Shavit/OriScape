@@ -50,6 +50,7 @@
 #include "document.h"
 #include "events/canvas-event.h"
 #include "helper/geom.h"
+#include "origami-tools.h"
 #include "preferences.h"
 #include "ui/controller.h"
 #include "ui/tools/tool-base.h"      // Default cursor
@@ -254,6 +255,7 @@ public:
     bool emit_event(CanvasEvent &event);
     void ensure_geometry_uptodate();
     CanvasItem *pre_scroll_grabbed_item;
+    bool origami_swallow_release = false; // The press went to the origami symbol stamp.
 
     // Various state affecting what is drawn.
     uint32_t desk   = 0xffffffff; // The background colour, with the alpha channel used to control checkerboard.
@@ -1193,11 +1195,29 @@ bool CanvasPrivate::process_event(CanvasEvent &event)
 
             // ...then process the event after the button has been pressed.
             q->_state = event.modifiersAfter();
+
+            auto &press = static_cast<ButtonPressEvent &>(event);
+            ensure_geometry_uptodate();
+            auto world = press.pos + q->_pos; // As in emit_event(), which converts after this point.
+            if (stores.mode() == Stores::Mode::Decoupled) {
+                world = world * q->_affine.inverse() * canvasitem_ctx->affine();
+            }
+            if (q->_desktop && Origami::on_canvas_button_press(q->_desktop, world, press.button, press.num_press)) {
+                origami_swallow_release = true;
+                return true;
+            }
             return emit_event(event);
         }
 
         case EventType::BUTTON_RELEASE: {
             pre_scroll_grabbed_item = nullptr;
+
+            if (origami_swallow_release) {
+                origami_swallow_release = false;
+                q->_state = event.modifiersAfter();
+                repick();
+                return true;
+            }
 
             // Process the event as if the button were pressed...
             bool retval = emit_event(event);
@@ -1222,6 +1242,11 @@ bool CanvasPrivate::process_event(CanvasEvent &event)
             return repick();
 
         case EventType::KEY_PRESS:
+            if (q->_desktop && Origami::on_canvas_key_press(q->_desktop, static_cast<KeyPressEvent &>(event).keyval)) {
+                return true;
+            }
+            return emit_event(event);
+
         case EventType::KEY_RELEASE:
             return emit_event(event);
 

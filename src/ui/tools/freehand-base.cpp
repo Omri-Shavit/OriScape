@@ -20,6 +20,7 @@
 #include "desktop-style.h"
 #include "id-clash.h"
 #include "message-stack.h"
+#include "origami-tools.h"
 #include "selection.h"
 #include "selection-chemistry.h"
 #include "style.h"
@@ -776,6 +777,7 @@ static void spdc_flush_white(FreehandBase *dc, std::shared_ptr<SPCurve> gc)
             repr = xml_doc->createElement("svg:path");
             // Set style
             sp_desktop_apply_style_tool(desktop, repr, dc->getPrefsPath(), false);
+            Inkscape::Origami::name_new_path(desktop, repr);
         }
 
         auto str = sp_svg_write_path(c->get_pathvector());

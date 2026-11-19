@@ -21,6 +21,7 @@
 #include <gtkmm/box.h>
 #include <gtkmm/grid.h>
 #include <gtkmm/label.h>
+#include <gtkmm/scrolledwindow.h>
 
 #include "desktop.h"
 #include "desktop-style.h"
@@ -31,6 +32,7 @@
 #include "ui/widget/fill-style.h"
 #include "ui/widget/stroke-style.h"
 #include "ui/widget/notebook-page.h"
+#include "ui/widget/origami-tools-panel.h"
 
 namespace Inkscape::UI::Dialog {
 
@@ -39,6 +41,7 @@ FillAndStroke::FillAndStroke()
     , _page_fill(Gtk::make_managed<UI::Widget::NotebookPage>(1, 1, true, true))
     , _page_stroke_paint(Gtk::make_managed<UI::Widget::NotebookPage>(1, 1, true, true))
     , _page_stroke_style(Gtk::make_managed<UI::Widget::NotebookPage>(1, 1, true, true))
+    , _page_origami(Gtk::make_managed<UI::Widget::NotebookPage>(1, 1, true, true))
     , _composite_settings(INKSCAPE_ICON("dialog-fill-and-stroke"),
                           "fillstroke",
                           UI::Widget::SimpleFilterModifier::ISOLATION |
@@ -54,6 +57,7 @@ FillAndStroke::FillAndStroke()
     _notebook.append_page(*_page_fill, _createPageTabLabel(_("_Fill"), INKSCAPE_ICON("object-fill")));
     _notebook.append_page(*_page_stroke_paint, _createPageTabLabel(_("Stroke _paint"), INKSCAPE_ICON("object-stroke")));
     _notebook.append_page(*_page_stroke_style, _createPageTabLabel(_("Stroke st_yle"), INKSCAPE_ICON("object-stroke-style")));
+    _notebook.append_page(*_page_origami, _createPageTabLabel(_("_Origami tools"), INKSCAPE_ICON("draw-freehand")));
     _notebook.set_vexpand(true);
 
     _notebook.signal_switch_page().connect(sigc::mem_fun(*this, &FillAndStroke::_onSwitchPage));
@@ -61,6 +65,7 @@ FillAndStroke::FillAndStroke()
     _layoutPageFill();
     _layoutPageStrokePaint();
     _layoutPageStrokeStyle();
+    _layoutPageOrigami();
 
     UI::pack_end(*this, _composite_settings, UI::PackOptions::shrink);
 
@@ -127,6 +132,9 @@ void FillAndStroke::desktopReplaced()
     if (strokeStyleWdgt) {
         strokeStyleWdgt->setDesktop(getDesktop());
     }
+    if (origamiWdgt) {
+        origamiWdgt->setDesktop(getDesktop());
+    }
     _subject.setDesktop(getDesktop());
 }
 
@@ -186,6 +194,18 @@ FillAndStroke::_layoutPageStrokeStyle()
 }
 
 void
+FillAndStroke::_layoutPageOrigami()
+{
+    origamiWdgt = Gtk::make_managed<UI::Widget::OrigamiToolsPanel>();
+    auto const scroller = Gtk::make_managed<Gtk::ScrolledWindow>();
+    scroller->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+    scroller->set_hexpand(true);
+    scroller->set_vexpand(true);
+    scroller->add(*origamiWdgt);
+    _page_origami->table().attach(*scroller, 0, 0, 1, 1);
+}
+
+void
 FillAndStroke::showPageFill()
 {
     blink();
@@ -209,6 +229,14 @@ FillAndStroke::showPageStrokeStyle()
     _notebook.set_current_page(2);
     _savePagePref(2);
 
+}
+
+void
+FillAndStroke::showPageOrigami()
+{
+    blink();
+    _notebook.set_current_page(3);
+    _savePagePref(3);
 }
 
 Gtk::Box&

@@ -13,8 +13,9 @@
  * Released under GNU GPL v2+, read the file 'COPYING' for more information.
  */
 
-#include <memory>
 #include <compare>
+#include <cstdint>
+#include <memory>
 
 #include "canvas-item-enums.h"
 

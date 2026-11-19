@@ -31,6 +31,7 @@ namespace Inkscape::UI {
 namespace Widget {
 class FillNStroke;
 class NotebookPage;
+class OrigamiToolsPanel;
 class StrokeStyle;
 } // namespace Widget
 
@@ -47,6 +48,7 @@ public:
     void showPageFill();
     void showPageStrokePaint();
     void showPageStrokeStyle();
+    void showPageOrigami();
 
 protected:
     Gtk::Notebook   _notebook;
@@ -54,6 +56,7 @@ protected:
     UI::Widget::NotebookPage    *_page_fill         = nullptr;
     UI::Widget::NotebookPage    *_page_stroke_paint = nullptr;
     UI::Widget::NotebookPage    *_page_stroke_style = nullptr;
+    UI::Widget::NotebookPage    *_page_origami      = nullptr;
 
     UI::Widget::StyleSubject::Selection _subject;
     UI::Widget::ObjectCompositeSettings _composite_settings;
@@ -64,6 +67,7 @@ protected:
     void _layoutPageFill();
     void _layoutPageStrokePaint();
     void _layoutPageStrokeStyle();
+    void _layoutPageOrigami();
     void _savePagePref(guint page_num);
     void _onSwitchPage(Gtk::Widget *page, guint pagenum);
 
@@ -78,6 +82,7 @@ private:
     UI::Widget::FillNStroke *fillWdgt        = nullptr;
     UI::Widget::FillNStroke *strokeWdgt      = nullptr;
     UI::Widget::StrokeStyle *strokeStyleWdgt = nullptr;
+    UI::Widget::OrigamiToolsPanel *origamiWdgt = nullptr;
 };
 
 } // namespace Dialog

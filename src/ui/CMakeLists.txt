@@ -242,6 +242,7 @@ set(ui_SRC
 	widget/object-composite-settings.cpp
 	widget/objects-dialog-cells.cpp
 	widget/oklab-color-wheel.cpp
+	widget/origami-tools-panel.cpp
 	widget/optglarea.cpp
 	widget/page-properties.cpp
 	widget/page-size-preview.cpp
@@ -537,6 +538,7 @@ set(ui_SRC
 	widget/objects-dialog-cells.h
 	widget/oklab-color-wheel.h
 	widget/optglarea.h
+	widget/origami-tools-panel.h
 	widget/page-selector.h
 	widget/paint-selector.h
 	widget/palette_t.h
