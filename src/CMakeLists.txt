@@ -268,6 +268,8 @@ set(inkscape_SRC
   actions/actions-view-window.cpp
   actions/actions-window.h
   actions/actions-window.cpp
+  actions/actions-origami.h
+  actions/actions-origami.cpp
   actions/actions-pages.h
   actions/actions-pages.cpp
   actions/actions-svg-processing.h

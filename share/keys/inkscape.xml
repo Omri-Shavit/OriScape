@@ -236,6 +236,9 @@ override) the bindings in the main default.xml.
   <bind gaction="win.view-full-screen-focus"             keys="&lt;primary&gt;F11" />
   <bind gaction="win.view-focus-toggle"                  keys="&lt;shift&gt;F11" />
 
+  <!-- Origami -->
+  <bind gaction="win.origami-add-step"                   keys="&lt;alt&gt;n" />
+
   <!-- Layers -->
   <bind gaction="win.layer-new"                          keys="&lt;primary&gt;&lt;shift&gt;n" />
   <bind gaction="win.layer-rename" />

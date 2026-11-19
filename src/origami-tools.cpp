@@ -8,6 +8,7 @@
 
 #include "origami-tools.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <map>
@@ -26,7 +27,10 @@
 #include "message-stack.h"
 #include "object/sp-defs.h"
 #include "object/sp-item-group.h"
+#include "object/sp-page.h"
+#include "object/sp-root.h"
 #include "object/sp-use.h"
+#include "page-manager.h"
 #include "path-prefix.h"
 #include "preferences.h"
 #include "selection.h"
@@ -43,6 +47,10 @@ namespace {
 // after the tool.
 char const *const SIGNATURE[] = {"fill", "stroke", "stroke-width", "stroke-dasharray",
                                  "marker-start", "marker-end"};
+
+double const INCH = 96.0;             ///< document coordinates are CSS px
+double const STEP_GAP = INCH;         ///< between one step and the next
+double const PAGE_MARGIN = INCH / 2;  ///< kept clear at the edges of a page
 
 struct Resources
 {
@@ -110,6 +118,9 @@ struct State
 {
     Tool const *active = nullptr;
     SPCSSAttr *applied = nullptr; ///< the active tool's style as written to the desktop
+    Inkscape::XML::Node const *named = nullptr; ///< the path name_new_path() last named
+    SPGroup *named_step = nullptr;              ///< and the step it belongs in
+    std::string step_id;                        ///< the step the user last singled out
     Inkscape::MessageId message = 0;
     std::shared_ptr<Inkscape::MessageStack> message_stack;
     sigc::signal<void ()> changed;
@@ -259,14 +270,138 @@ bool ensure_defs_for_style(SPDocument *doc, std::string const &style)
     return added;
 }
 
-std::string unique_id(SPDocument *doc, std::string const &prefix)
+/// An id nobody is using: the name itself, else the name with "-2", "-3" ... appended.
+std::string unique_id(SPDocument *doc, std::string const &name)
 {
-    for (unsigned n = 1;; ++n) {
-        auto id = prefix + std::to_string(n);
+    if (!doc->getObjectById(name)) {
+        return name;
+    }
+    for (int n = 2;; ++n) {
+        auto id = name + "-" + std::to_string(n);
         if (!doc->getObjectById(id)) {
             return id;
         }
     }
+}
+
+/// What the Objects dialog shows for an object.
+std::string object_name(SPObject const *object)
+{
+    if (auto const label = object->label()) {
+        return label;
+    }
+    if (auto const id = object->getId()) {
+        return id;
+    }
+    return {};
+}
+
+/// n for a group named "step<n>", 0 for anything else.
+int step_number(SPObject const *object)
+{
+    static std::regex const re(R"(step(\d+))");
+    std::smatch match;
+    auto const name = object_name(object);
+    if (!is<SPGroup>(object) || !std::regex_match(name, match, re)) {
+        return 0;
+    }
+    return std::atoi(match[1].str().c_str());
+}
+
+void collect_steps(SPObject *parent, std::vector<SPGroup *> &out)
+{
+    for (auto &child : parent->children) {
+        if (step_number(&child)) {
+            out.push_back(cast<SPGroup>(&child));
+        } else if (is<SPGroup>(&child)) {
+            collect_steps(&child, out); // steps live in a layer, which may hold other groups
+        }
+    }
+}
+
+/// Every step in the document, lowest number first.
+std::vector<SPGroup *> steps(SPDocument *doc)
+{
+    std::vector<SPGroup *> out;
+    collect_steps(doc->getRoot(), out);
+    std::sort(out.begin(), out.end(),
+              [](SPGroup *a, SPGroup *b) { return step_number(a) < step_number(b); });
+    return out;
+}
+
+/// The tool an object was made with, going by its name: "mountainFold3" is a Mountain.
+Tool const *tool_of(SPObject const *object)
+{
+    static std::regex const number(R"(\d+(-\d+)?)");
+    auto const name = object_name(object);
+    for (auto const &tool : tools()) {
+        if (name.size() > tool.prefix.size() && name.compare(0, tool.prefix.size(), tool.prefix) == 0 &&
+            std::regex_match(name.substr(tool.prefix.size()), number)) {
+            return &tool;
+        }
+    }
+    return nullptr;
+}
+
+/// Name a new object after its tool, numbered within its step: "mountainFold7".
+void name_in_step(SPObject *step, Inkscape::XML::Node *repr, Tool const &tool)
+{
+    int last = 0;
+    for (auto &child : step->children) {
+        auto const name = object_name(&child);
+        if (name.size() > tool.prefix.size() && name.compare(0, tool.prefix.size(), tool.prefix) == 0) {
+            last = std::max(last, std::atoi(name.c_str() + tool.prefix.size()));
+        }
+    }
+    auto const name = tool.prefix + std::to_string(last + 1);
+    repr->setAttribute("inkscape:label", name);
+    repr->setAttribute("id", unique_id(step->document, name));
+}
+
+SPGroup *make_step(SPDocument *doc, int number, SPObject *parent)
+{
+    auto const name = "step" + std::to_string(number);
+    auto repr = doc->getReprDoc()->createElement("svg:g");
+    repr->setAttribute("inkscape:label", name);
+    repr->setAttribute("id", unique_id(doc, name));
+    parent->getRepr()->appendChild(repr);
+    Inkscape::GC::release(repr);
+    return cast<SPGroup>(doc->getObjectByRepr(repr));
+}
+
+/// Shift an item by an offset in document coordinates, through its own transform.
+void move_by(SPItem *item, Geom::Point const &offset)
+{
+    auto const parent = cast<SPItem>(item->parent);
+    auto const to_doc = parent ? parent->i2doc_affine() : Geom::Affine(Geom::identity());
+    auto const shift = to_doc * Geom::Translate(offset) * to_doc.inverse();
+    item->getRepr()->setAttribute("transform", sp_svg_transform_write(item->transform * shift));
+}
+
+/// Put a step an inch right of the last one, keeping it on the page: if it would hang off the
+/// right edge it starts a new line a half inch in, and if that runs off the bottom, a new page.
+void place_step(SPDocument *doc, SPGroup *step, SPGroup *last)
+{
+    auto const box = step->documentVisualBounds();
+    auto const previous = last->documentVisualBounds();
+    if (!box || !previous) {
+        return; // an empty step has nowhere to be
+    }
+    auto &pages = doc->getPageManager();
+    auto const page = pages.getPageFor(last, false);
+    auto const area = page ? page->getDocumentRect() : *doc->preferredBounds();
+
+    Geom::Point at(previous->right() + STEP_GAP, previous->top());
+    if (at[Geom::X] + box->width() > area.right() - PAGE_MARGIN) {
+        at = Geom::Point(area.left() + PAGE_MARGIN, previous->bottom() + STEP_GAP);
+        if (at[Geom::Y] + box->height() > area.bottom() - PAGE_MARGIN) {
+            if (auto const fresh = pages.newPage()) {
+                doc->ensureUpToDate();
+                at = fresh->getDocumentRect().min() + Geom::Point(PAGE_MARGIN, PAGE_MARGIN);
+            }
+        }
+    }
+    move_by(step, at - box->min());
 }
 
 void place_symbol(SPDesktop *desktop, Tool const &tool, Geom::Point const &dt_point)
@@ -274,11 +409,16 @@ void place_symbol(SPDesktop *desktop, Tool const &tool, Geom::Point const &dt_po
     auto doc = desktop->getDocument();
     ensure_def(doc, tool.symbol);
 
-    auto layer = desktop->layerManager().currentLayer();
-    auto const to_layer = layer->i2doc_affine().inverse();
-    auto const center = dt_point * desktop->dt2doc() * to_layer;
-    // The symbol's viewBox is in px; size it in the layer's user units.
-    double const units = layer->i2doc_affine().descrim();
+    SPItem *container = desktop->layerManager().currentLayer();
+    if (!tool.isBetweenSteps()) {
+        if (auto const step = current_step(desktop, true)) {
+            container = step;
+        }
+    }
+    auto const to_container = container->i2doc_affine().inverse();
+    auto const center = dt_point * desktop->dt2doc() * to_container;
+    // The symbol's viewBox is in px; size it in the container's user units.
+    double const units = container->i2doc_affine().descrim();
     double const w = tool.width / units;
     double const h = tool.height / units;
 
@@ -288,8 +428,8 @@ void place_symbol(SPDesktop *desktop, Tool const &tool, Geom::Point const &dt_po
     repr->setAttributeSvgDouble("y", center[Geom::Y] - h / 2);
     repr->setAttributeSvgDouble("width", w);
     repr->setAttributeSvgDouble("height", h);
-    repr->setAttribute("id", unique_id(doc, tool.prefix));
-    layer->appendChildRepr(repr);
+    name_in_step(container, repr, tool);
+    container->appendChildRepr(repr);
     desktop->getSelection()->set(repr);
     Inkscape::GC::release(repr);
 
@@ -377,6 +517,8 @@ void pick(SPDesktop *desktop, Tool const *tool)
         return;
     }
 
+    current_step(desktop, false); // note the step on show now; drawing will clear the selection
+
     if (tool->isSymbol()) {
         set_active_tool(desktop, "Select");
         auto text = Glib::ustring::compose(
@@ -391,14 +533,22 @@ void pick(SPDesktop *desktop, Tool const *tool)
     auto const current = get_active_tool(desktop);
     bool const drawing = current == "Pen" || current == "Pencil";
     auto selection = desktop->getSelection();
-    // While drawing, the selection is just the last path drawn; it keeps its own style.
+    // While drawing, the selection is just the last path drawn, which keeps its own style. A
+    // selected step is different: it says where the next object goes, so it stays selected.
     if (drawing) {
-        selection->clear();
+        std::vector<SPItem *> keep;
+        for (auto const item : selection->items()) {
+            if (step_number(item)) {
+                keep.push_back(item);
+            }
+        }
+        selection->setList(keep);
     }
-    // Placed symbols stay selected for rotating; restyling them would hide their artwork.
+    // Placed symbols stay selected for rotating; restyling them would hide their artwork. A
+    // selected step says where the next object goes, so it is not something to restyle either.
     Inkscape::ObjectSet targets(desktop);
     for (auto item : selection->items()) {
-        if (!is<SPUse>(item)) {
+        if (!is<SPUse>(item) && !step_number(item)) {
             targets.add(item);
         }
     }
@@ -427,7 +577,9 @@ void pick(SPDesktop *desktop, Tool const *tool)
 
 void name_new_path(SPDesktop *desktop, Inkscape::XML::Node *repr)
 {
-    auto const &s = state();
+    auto &s = state();
+    s.named = nullptr;
+    s.named_step = nullptr;
     if (!s.active || !s.applied || s.active->isSymbol() || !desktop) {
         return;
     }
@@ -435,10 +587,92 @@ void name_new_path(SPDesktop *desktop, Inkscape::XML::Node *repr)
         auto const want = std::string(sp_repr_css_property(s.applied, prop, ""));
         auto const have = std::string(sp_repr_css_property(desktop->current, prop, ""));
         if (want != have) {
-            return;
+            return; // drawn with a style of the user's own, so not ours to name
         }
     }
-    repr->setAttribute("id", unique_id(desktop->getDocument(), s.active->prefix));
+    auto const step = current_step(desktop, true);
+    if (!step) {
+        return;
+    }
+    name_in_step(step, repr, *s.active);
+    s.named = repr;
+    s.named_step = step;
+}
+
+SPGroup *container_for(Inkscape::XML::Node const *repr, SPGroup *layer)
+{
+    auto const &s = state();
+    return repr && repr == s.named && s.named_step ? s.named_step : layer;
+}
+
+SPGroup *current_step(SPDesktop *desktop, bool create)
+{
+    if (!desktop) {
+        return nullptr;
+    }
+    auto &s = state();
+    auto const doc = desktop->getDocument();
+    for (auto const item : desktop->getSelection()->items()) {
+        for (SPObject *object = item; object; object = object->parent) {
+            if (step_number(object)) {
+                s.step_id = object->getId() ? object->getId() : "";
+                return cast<SPGroup>(object);
+            }
+        }
+    }
+    // The drawing tools drop the selection as they begin a path, so the step the user singled
+    // out before reaching for a tool is remembered until they single out another one.
+    if (!s.step_id.empty()) {
+        auto const remembered = cast<SPGroup>(doc->getObjectById(s.step_id));
+        if (remembered && step_number(remembered)) {
+            return remembered;
+        }
+        s.step_id.clear();
+    }
+    auto const all = steps(doc);
+    if (!all.empty()) {
+        return all.back();
+    }
+    return create ? make_step(doc, 1, desktop->layerManager().currentLayer()) : nullptr;
+}
+
+SPGroup *add_step(SPDesktop *desktop)
+{
+    if (!desktop) {
+        return nullptr;
+    }
+    auto doc = desktop->getDocument();
+    auto const all = steps(doc);
+    auto const source = all.empty() ? nullptr : current_step(desktop, false);
+    auto const step = make_step(doc, all.empty() ? 1 : step_number(all.back()) + 1,
+                                source ? source->parent : desktop->layerManager().currentLayer());
+    if (!step) {
+        return nullptr;
+    }
+
+    if (source) {
+        auto xml = doc->getReprDoc();
+        for (auto child = source->getRepr()->firstChild(); child; child = child->next()) {
+            auto const object = doc->getObjectByRepr(child);
+            auto const tool = object ? tool_of(object) : nullptr;
+            if (tool && tool->isArrow()) {
+                continue; // an arrow describes the fold about to happen, so it stays behind
+            }
+            auto copy = child->duplicate(xml);
+            // Names repeat from step to step, so give the copy a free id to go with its label.
+            if (auto const label = copy->attribute("inkscape:label")) {
+                copy->setAttribute("id", unique_id(doc, label));
+            }
+            step->getRepr()->appendChild(copy);
+            Inkscape::GC::release(copy);
+        }
+        doc->ensureUpToDate();
+        place_step(doc, step, all.back());
+    }
+
+    desktop->getSelection()->set(step);
+    DocumentUndo::done(doc, Glib::ustring::compose(_("Add %1"), object_name(step)), "");
+    return step;
 }
 
 bool on_canvas_button_press(SPDesktop *desktop, Geom::Point const &world, unsigned button, int num_press)

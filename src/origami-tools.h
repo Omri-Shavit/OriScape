@@ -8,6 +8,11 @@
  * Picking a paper, line or arrow tool makes its style the desktop's current style (the one the
  * pen and pencil tools draw with) and restyles any selected objects. Picking a symbol arms a
  * stamp: each left click on the canvas places that symbol until right-click or Escape.
+ *
+ * Everything drawn or stamped with a tool goes into a step: a group named "step1", "step2", ...
+ * Objects are named after their tool and numbered within their step, so each step has its own
+ * mountainFold1, mountainFold2 and so on. The name is the inkscape:label the Objects dialog
+ * shows; ids stay unique, as SVG requires. add_step() copies a step into the next one.
  */
 /*
  * Released under GNU GPL v2+, read the file 'COPYING' for more information.
@@ -22,6 +27,7 @@
 #include <sigc++/signal.h>
 
 class SPDesktop;
+class SPGroup;
 
 namespace Inkscape::XML {
 class Node;
@@ -45,6 +51,9 @@ struct Tool
 
     bool isSymbol() const { return category == "symbols"; }
     bool isPaper() const { return category == "paper"; }
+    bool isArrow() const { return category == "arrows"; }
+    /// Turn over says what happens between two steps, so it lives outside them and is not copied.
+    bool isBetweenSteps() const { return key == "turnOver"; }
     /// Tools whose color the user can change with a long press: paper, finger and turn over.
     bool isRecolorable() const { return isPaper() || key == "finger" || key == "turnOver"; }
 };
@@ -77,9 +86,21 @@ std::string tool_color(Tool const &tool);
 /// color is its gradient's shaded stop. Every placed symbol of that tool updates.
 void set_tool_color(SPDesktop *desktop, Tool const &tool, std::string const &color);
 
-/// Give a path the pen/pencil is about to add an id like "mountainFold3", if it was drawn
-/// with the active tool's style.
+/// Name a path the pen/pencil is about to add after the active tool ("mountainFold3"), if it
+/// was drawn with that tool's style. Remembers the step it belongs in for container_for().
 void name_new_path(SPDesktop *desktop, Inkscape::XML::Node *repr);
+
+/// Where the pen/pencil should put a path it just made: the step it was named for, else the
+/// layer it would have gone into anyway.
+SPGroup *container_for(Inkscape::XML::Node const *repr, SPGroup *layer);
+
+/// The step new objects go into: the step holding the selection, else the last step.
+/// Makes step1 when the document has no steps and @a create is set.
+SPGroup *current_step(SPDesktop *desktop, bool create);
+
+/// Copy the current step, without its arrows, into a new step after the last one: an inch to
+/// its right, else at the start of a new line, else on a new page. Returns the new step.
+SPGroup *add_step(SPDesktop *desktop);
 
 /// Canvas hooks for the symbol stamp; return true if the event was consumed.
 bool on_canvas_button_press(SPDesktop *desktop, Geom::Point const &world, unsigned button, int num_press);

@@ -37,6 +37,7 @@
 #include "actions/actions-help-url.h"
 #include "actions/actions-layer.h"
 #include "actions/actions-node-align.h" // Node alignment.
+#include "actions/actions-origami.h"
 #include "actions/actions-pages.h"
 #include "actions/actions-paths.h"  // TEMP
 #include "actions/actions-selection-window.h"
@@ -98,6 +99,7 @@ InkscapeWindow::InkscapeWindow(SPDocument* document)
     add_actions_help_url(this);             // Actions to help url.
     add_actions_layer(this);                // Actions for layer.
     add_actions_node_align(this);           // Actions to align and distribute nodes (requiring Node tool).
+    add_actions_origami(this);              // Actions for the origami tools.
     add_actions_page_tools(this);           // Actions specific to pages tool and toolbar
     add_actions_path(this);                 // Actions for paths. TEMP
     add_actions_select_window(this);        // Actions with desktop selection

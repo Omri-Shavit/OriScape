@@ -17,6 +17,7 @@
 #include <sstream>
 #include <glibmm/i18n.h>
 #include <glibmm/markup.h>
+#include <gtkmm/button.h>
 #include <gtkmm/colorchooserdialog.h>
 #include <gtkmm/drawingarea.h>
 #include <gtkmm/expander.h>
@@ -260,6 +261,13 @@ OrigamiToolsPanel::OrigamiToolsPanel()
         return;
     }
     _rows.reserve(tools.size());
+
+    auto step_button = Gtk::make_managed<Gtk::Button>(_("Add step"));
+    step_button->set_tooltip_text(
+        _("Copy the current step, without its arrows, into a new step (Alt+N)"));
+    step_button->signal_clicked().connect([this] { Origami::add_step(_desktop); });
+    step_button->set_margin_bottom(4);
+    add(*step_button);
 
     std::string category;
     Gtk::Box *section = nullptr;

@@ -786,7 +786,7 @@ static void spdc_flush_white(FreehandBase *dc, std::shared_ptr<SPCurve> gc)
         else
             repr->setAttribute("d", str);
 
-        auto layer = dc->currentLayer();
+        auto layer = Inkscape::Origami::container_for(repr, dc->currentLayer());
         if (SP_IS_PENCIL_CONTEXT(dc) && dc->tablet_enabled) {
             if (!dc->white_item) {
                 dc->white_item = cast<SPItem>(layer->appendChildRepr(repr));
