@@ -1250,10 +1250,18 @@ bool CanvasPrivate::process_event(CanvasEvent &event)
         case EventType::KEY_RELEASE:
             return emit_event(event);
 
-        case EventType::MOTION:
+        case EventType::MOTION: {
             pre_scroll_grabbed_item = nullptr;
             repick();
+            if (q->_desktop) {
+                auto world = static_cast<MotionEvent &>(event).pos + q->_pos;
+                if (stores.mode() == Stores::Mode::Decoupled) {
+                    world = world * q->_affine.inverse() * canvasitem_ctx->affine();
+                }
+                Origami::on_canvas_motion(q->_desktop, world);
+            }
             return emit_event(event);
+        }
 
         default:
             return false;

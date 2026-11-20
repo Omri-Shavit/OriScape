@@ -238,6 +238,7 @@ override) the bindings in the main default.xml.
 
   <!-- Origami -->
   <bind gaction="win.origami-add-step"                   keys="&lt;alt&gt;n" />
+  <bind gaction="win.origami-apply-fold"                 keys="&lt;alt&gt;f" />
 
   <!-- Layers -->
   <bind gaction="win.layer-new"                          keys="&lt;primary&gt;&lt;shift&gt;n" />

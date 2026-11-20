@@ -43,7 +43,7 @@ STROKE_KEYS = (
 # key, name, category, "more" section, id prefix for drawn objects, library label(s)
 TOOLS = [
     ("white", "White", "paper", False, "whitePaper", dict(label="whiteSwatch", color="#ffffff")),
-    ("gray25", "Gray25", "paper", False, "gray25Paper", dict(label="gray25Swatch", color="#c8c7c7")),
+    ("gray", "Gray", "paper", False, "grayPaper", dict(label="gray25Swatch", color="#c8c7c7")),
     ("gray15", "Gray15", "paper", True, "gray15Paper", dict(label="gray15Swatch", color="#deddde")),
     ("gray32", "Gray32", "paper", True, "gray32Paper", dict(label="gray32Swatch", color="#b9b7b8")),
     ("gray40", "Gray40", "paper", True, "gray40Paper", dict(label="gray40Swatch", color="#a7a5a6")),

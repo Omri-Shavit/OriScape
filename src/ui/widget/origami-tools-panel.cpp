@@ -29,6 +29,7 @@
 
 #include "color.h"
 #include "display/cairo-utils.h"
+#include "origami-fold.h"
 #include "origami-tools.h"
 #include "svg/svg-color.h"
 #include "svg/svg.h"
@@ -262,12 +263,23 @@ OrigamiToolsPanel::OrigamiToolsPanel()
     }
     _rows.reserve(tools.size());
 
+    auto buttons = Gtk::make_managed<Gtk::Box>(Gtk::ORIENTATION_HORIZONTAL, 4);
+    buttons->set_homogeneous(true);
+    buttons->set_margin_bottom(4);
+
     auto step_button = Gtk::make_managed<Gtk::Button>(_("Add step"));
     step_button->set_tooltip_text(
         _("Copy the current step, without its arrows, into a new step (Alt+N)"));
     step_button->signal_clicked().connect([this] { Origami::add_step(_desktop); });
-    step_button->set_margin_bottom(4);
-    add(*step_button);
+    buttons->add(*step_button);
+
+    auto fold_button = Gtk::make_managed<Gtk::Button>(_("Apply fold"));
+    fold_button->set_tooltip_text(
+        _("Fold the paper along the selected crease, then click the half that moves (Alt+F)"));
+    fold_button->signal_clicked().connect([this] { Origami::apply_fold(_desktop); });
+    buttons->add(*fold_button);
+
+    add(*buttons);
 
     std::string category;
     Gtk::Box *section = nullptr;

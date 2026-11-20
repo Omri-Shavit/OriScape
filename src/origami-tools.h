@@ -102,8 +102,9 @@ SPGroup *current_step(SPDesktop *desktop, bool create);
 /// its right, else at the start of a new line, else on a new page. Returns the new step.
 SPGroup *add_step(SPDesktop *desktop);
 
-/// Canvas hooks for the symbol stamp; return true if the event was consumed.
+/// Canvas hooks for the symbol stamp and the fold command; true if the event was consumed.
 bool on_canvas_button_press(SPDesktop *desktop, Geom::Point const &world, unsigned button, int num_press);
+bool on_canvas_motion(SPDesktop *desktop, Geom::Point const &world);
 bool on_canvas_key_press(SPDesktop *desktop, unsigned keyval);
 
 } // namespace Inkscape::Origami

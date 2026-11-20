@@ -30,6 +30,8 @@
 #include "object/sp-page.h"
 #include "object/sp-root.h"
 #include "object/sp-use.h"
+#include "origami-detail.h"
+#include "origami-fold.h"
 #include "page-manager.h"
 #include "path-prefix.h"
 #include "preferences.h"
@@ -224,42 +226,6 @@ void apply_symbol_color(SPDocument *doc, Tool const &tool, std::string const &co
     });
 }
 
-/// Copy a resource def (and the defs it references) into the document unless it's there.
-/// Returns true if anything was added.
-bool ensure_def(SPDocument *doc, std::string const &id)
-{
-    if (doc->getObjectById(id)) {
-        return false;
-    }
-    auto const &defs = resources().defs;
-    auto it = defs.find(id);
-    if (it == defs.end()) {
-        return false;
-    }
-    std::set<std::string> refs;
-    collect_refs(it->second, refs);
-    for (auto const &ref : refs) {
-        ensure_def(doc, ref);
-    }
-
-    auto copy = it->second->duplicate(doc->getReprDoc());
-    for (auto const &tool : tools()) {
-        if (tool.isPaper() && tool.swatch == id) {
-            if (auto stop = copy->firstChild()) {
-                stop->setAttribute("style", "stop-color:" + paper_color(tool) + ";stop-opacity:1");
-            }
-        }
-    }
-    doc->getDefs()->getRepr()->appendChild(copy);
-    Inkscape::GC::release(copy);
-    for (auto const &tool : tools()) {
-        if (tool.isSymbol() && tool.symbol == id) {
-            apply_symbol_color(doc, tool, symbol_color(tool));
-        }
-    }
-    return true;
-}
-
 bool ensure_defs_for_style(SPDocument *doc, std::string const &style)
 {
     static std::regex const url(R"(url\(#([^)]+)\))");
@@ -268,44 +234,6 @@ bool ensure_defs_for_style(SPDocument *doc, std::string const &style)
         added = ensure_def(doc, (*it)[1]) || added;
     }
     return added;
-}
-
-/// An id nobody is using: the name itself, else the name with "-2", "-3" ... appended.
-std::string unique_id(SPDocument *doc, std::string const &name)
-{
-    if (!doc->getObjectById(name)) {
-        return name;
-    }
-    for (int n = 2;; ++n) {
-        auto id = name + "-" + std::to_string(n);
-        if (!doc->getObjectById(id)) {
-            return id;
-        }
-    }
-}
-
-/// What the Objects dialog shows for an object.
-std::string object_name(SPObject const *object)
-{
-    if (auto const label = object->label()) {
-        return label;
-    }
-    if (auto const id = object->getId()) {
-        return id;
-    }
-    return {};
-}
-
-/// n for a group named "step<n>", 0 for anything else.
-int step_number(SPObject const *object)
-{
-    static std::regex const re(R"(step(\d+))");
-    std::smatch match;
-    auto const name = object_name(object);
-    if (!is<SPGroup>(object) || !std::regex_match(name, match, re)) {
-        return 0;
-    }
-    return std::atoi(match[1].str().c_str());
 }
 
 void collect_steps(SPObject *parent, std::vector<SPGroup *> &out)
@@ -327,35 +255,6 @@ std::vector<SPGroup *> steps(SPDocument *doc)
     std::sort(out.begin(), out.end(),
               [](SPGroup *a, SPGroup *b) { return step_number(a) < step_number(b); });
     return out;
-}
-
-/// The tool an object was made with, going by its name: "mountainFold3" is a Mountain.
-Tool const *tool_of(SPObject const *object)
-{
-    static std::regex const number(R"(\d+(-\d+)?)");
-    auto const name = object_name(object);
-    for (auto const &tool : tools()) {
-        if (name.size() > tool.prefix.size() && name.compare(0, tool.prefix.size(), tool.prefix) == 0 &&
-            std::regex_match(name.substr(tool.prefix.size()), number)) {
-            return &tool;
-        }
-    }
-    return nullptr;
-}
-
-/// Name a new object after its tool, numbered within its step: "mountainFold7".
-void name_in_step(SPObject *step, Inkscape::XML::Node *repr, Tool const &tool)
-{
-    int last = 0;
-    for (auto &child : step->children) {
-        auto const name = object_name(&child);
-        if (name.size() > tool.prefix.size() && name.compare(0, tool.prefix.size(), tool.prefix) == 0) {
-            last = std::max(last, std::atoi(name.c_str() + tool.prefix.size()));
-        }
-    }
-    auto const name = tool.prefix + std::to_string(last + 1);
-    repr->setAttribute("inkscape:label", name);
-    repr->setAttribute("id", unique_id(step->document, name));
 }
 
 SPGroup *make_step(SPDocument *doc, int number, SPObject *parent)
@@ -438,6 +337,122 @@ void place_symbol(SPDesktop *desktop, Tool const &tool, Geom::Point const &dt_po
 
 } // namespace
 
+std::string object_name(SPObject const *object)
+{
+    if (auto const label = object->label()) {
+        return label;
+    }
+    if (auto const id = object->getId()) {
+        return id;
+    }
+    return {};
+}
+
+int step_number(SPObject const *object)
+{
+    static std::regex const re(R"(step(\d+))");
+    std::smatch match;
+    auto const name = object_name(object);
+    if (!is<SPGroup>(object) || !std::regex_match(name, match, re)) {
+        return 0;
+    }
+    return std::atoi(match[1].str().c_str());
+}
+
+Tool const *tool_of(SPObject const *object)
+{
+    static std::regex const number(R"(\d+(-\d+)?)");
+    auto const name = object_name(object);
+    for (auto const &tool : tools()) {
+        if (name.size() > tool.prefix.size() && name.compare(0, tool.prefix.size(), tool.prefix) == 0 &&
+            std::regex_match(name.substr(tool.prefix.size()), number)) {
+            return &tool;
+        }
+    }
+    return nullptr;
+}
+
+Tool const *tool_by_key(std::string const &key)
+{
+    for (auto const &tool : tools()) {
+        if (tool.key == key) {
+            return &tool;
+        }
+    }
+    return nullptr;
+}
+
+void name_in_step(SPObject *step, Inkscape::XML::Node *repr, Tool const &tool)
+{
+    int last = 0;
+    for (auto &child : step->children) {
+        auto const name = object_name(&child);
+        if (name.size() > tool.prefix.size() && name.compare(0, tool.prefix.size(), tool.prefix) == 0) {
+            last = std::max(last, std::atoi(name.c_str() + tool.prefix.size()));
+        }
+    }
+    auto const name = tool.prefix + std::to_string(last + 1);
+    repr->setAttribute("inkscape:label", name);
+    repr->setAttribute("id", unique_id(step->document, name));
+}
+
+SPObject *naming_scope(SPObject *object)
+{
+    for (auto scope = object; scope; scope = scope->parent) {
+        if (step_number(scope)) {
+            return scope;
+        }
+    }
+    return object->parent ? object->parent : object;
+}
+
+std::string unique_id(SPDocument *doc, std::string const &name)
+{
+    if (!doc->getObjectById(name)) {
+        return name;
+    }
+    for (int n = 2;; ++n) {
+        auto id = name + "-" + std::to_string(n);
+        if (!doc->getObjectById(id)) {
+            return id;
+        }
+    }
+}
+
+bool ensure_def(SPDocument *doc, std::string const &id)
+{
+    if (doc->getObjectById(id)) {
+        return false;
+    }
+    auto const &defs = resources().defs;
+    auto it = defs.find(id);
+    if (it == defs.end()) {
+        return false;
+    }
+    std::set<std::string> refs;
+    collect_refs(it->second, refs);
+    for (auto const &ref : refs) {
+        ensure_def(doc, ref);
+    }
+
+    auto copy = it->second->duplicate(doc->getReprDoc());
+    for (auto const &tool : tools()) {
+        if (tool.isPaper() && tool.swatch == id) {
+            if (auto stop = copy->firstChild()) {
+                stop->setAttribute("style", "stop-color:" + paper_color(tool) + ";stop-opacity:1");
+            }
+        }
+    }
+    doc->getDefs()->getRepr()->appendChild(copy);
+    Inkscape::GC::release(copy);
+    for (auto const &tool : tools()) {
+        if (tool.isSymbol() && tool.symbol == id) {
+            apply_symbol_color(doc, tool, symbol_color(tool));
+        }
+    }
+    return true;
+}
+
 std::vector<Tool> const &tools()
 {
     return resources().tools;
@@ -504,6 +519,7 @@ void set_tool_color(SPDesktop *desktop, Tool const &tool, std::string const &col
 
 void pick(SPDesktop *desktop, Tool const *tool)
 {
+    cancel_fold(); // reaching for a tool is not the click the fold command is waiting for
     auto &s = state();
     if (s.applied) {
         sp_repr_css_attr_unref(s.applied);
@@ -677,6 +693,9 @@ SPGroup *add_step(SPDesktop *desktop)
 
 bool on_canvas_button_press(SPDesktop *desktop, Geom::Point const &world, unsigned button, int num_press)
 {
+    if (fold_on_button_press(desktop, world, button)) {
+        return true;
+    }
     auto const tool = state().active;
     if (!desktop || !tool || !tool->isSymbol()) {
         return false;
@@ -694,8 +713,16 @@ bool on_canvas_button_press(SPDesktop *desktop, Geom::Point const &world, unsign
     return true;
 }
 
+bool on_canvas_motion(SPDesktop *desktop, Geom::Point const &world)
+{
+    return fold_on_motion(desktop, world);
+}
+
 bool on_canvas_key_press(SPDesktop *desktop, unsigned keyval)
 {
+    if (fold_on_key_press(desktop, keyval)) {
+        return true;
+    }
     auto const tool = state().active;
     if (keyval == GDK_KEY_Escape && tool && tool->isSymbol()) {
         pick(desktop, nullptr);
